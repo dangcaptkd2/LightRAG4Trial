@@ -24,6 +24,7 @@ from tenacity import (
 from lightrag.utils import (
     wrap_embedding_func_with_attrs,
     safe_unicode_decode,
+    logger,
 )
 
 import numpy as np
@@ -41,11 +42,16 @@ async def azure_openai_complete_if_cache(
     prompt,
     system_prompt: str | None = None,
     history_messages: Iterable[ChatCompletionMessageParam] | None = None,
+    enable_cot: bool = False,
     base_url: str | None = None,
     api_key: str | None = None,
     api_version: str | None = None,
     **kwargs,
 ):
+    if enable_cot:
+        logger.debug(
+            "enable_cot=True is not supported for the Azure OpenAI API and will be ignored."
+        )
     deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT") or model or os.getenv("LLM_MODEL")
     base_url = (
         base_url or os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("LLM_BINDING_HOST")
@@ -59,13 +65,17 @@ async def azure_openai_complete_if_cache(
         or os.getenv("OPENAI_API_VERSION")
     )
 
+    kwargs.pop("hashing_kv", None)
+    kwargs.pop("keyword_extraction", None)
+    timeout = kwargs.pop("timeout", None)
+
     openai_async_client = AsyncAzureOpenAI(
         azure_endpoint=base_url,
         azure_deployment=deployment,
         api_key=api_key,
         api_version=api_version,
+        timeout=timeout,
     )
-    kwargs.pop("hashing_kv", None)
     messages = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})

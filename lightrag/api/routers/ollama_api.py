@@ -469,8 +469,8 @@ class OllamaAPI:
             "/chat", dependencies=[Depends(combined_auth)], include_in_schema=True
         )
         async def chat(raw_request: Request):
-            """Process chat completion requests acting as an Ollama model
-            Routes user queries through LightRAG by selecting query mode based on prefix indicators.
+            """Process chat completion requests by acting as an Ollama model.
+            Routes user queries through LightRAG by selecting query mode based on query prefix.
             Detects and forwards OpenWebUI session-related requests (for meta data generation task) directly to LLM.
             Supports both application/json and application/octet-stream Content-Types.
             """
@@ -509,12 +509,6 @@ class OllamaAPI:
                 # Add user_prompt to param_dict
                 if user_prompt is not None:
                     param_dict["user_prompt"] = user_prompt
-
-                if (
-                    hasattr(self.rag, "args")
-                    and self.rag.args.history_turns is not None
-                ):
-                    param_dict["history_turns"] = self.rag.args.history_turns
 
                 query_param = QueryParam(**param_dict)
 
