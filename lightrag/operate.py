@@ -1,56 +1,57 @@
 from __future__ import annotations
-from functools import partial
 
 import asyncio
 import json
-import re
 import os
-import json_repair
-from typing import Any, AsyncIterator
+import re
+import time
 from collections import Counter, defaultdict
+from functools import partial
+from typing import Any, AsyncIterator
 
-from .utils import (
-    logger,
-    clean_str,
-    compute_mdhash_id,
-    Tokenizer,
-    is_float_regex,
-    normalize_extracted_info,
-    pack_user_ass_to_openai_messages,
-    split_string_by_multi_markers,
-    truncate_list_by_token_size,
-    compute_args_hash,
-    handle_cache,
-    save_to_cache,
-    CacheData,
-    get_conversation_turns,
-    use_llm_func_with_cache,
-    update_chunk_cache_list,
-    remove_think_tags,
-    pick_by_weighted_polling,
-    pick_by_vector_similarity,
-    process_chunks_unified,
-    build_file_path,
-)
+import json_repair
+from dotenv import load_dotenv
+
 from .base import (
     BaseGraphStorage,
     BaseKVStorage,
     BaseVectorStorage,
-    TextChunkSchema,
     QueryParam,
+    TextChunkSchema,
 )
-from .prompt import PROMPTS
 from .constants import (
-    GRAPH_FIELD_SEP,
+    DEFAULT_KG_CHUNK_PICK_METHOD,
     DEFAULT_MAX_ENTITY_TOKENS,
     DEFAULT_MAX_RELATION_TOKENS,
     DEFAULT_MAX_TOTAL_TOKENS,
     DEFAULT_RELATED_CHUNK_NUMBER,
-    DEFAULT_KG_CHUNK_PICK_METHOD,
+    GRAPH_FIELD_SEP,
 )
 from .kg.shared_storage import get_storage_keyed_lock
-import time
-from dotenv import load_dotenv
+from .prompt import PROMPTS
+from .utils import (
+    CacheData,
+    Tokenizer,
+    build_file_path,
+    clean_str,
+    compute_args_hash,
+    compute_mdhash_id,
+    get_conversation_turns,
+    handle_cache,
+    is_float_regex,
+    logger,
+    normalize_extracted_info,
+    pack_user_ass_to_openai_messages,
+    pick_by_vector_similarity,
+    pick_by_weighted_polling,
+    process_chunks_unified,
+    remove_think_tags,
+    save_to_cache,
+    split_string_by_multi_markers,
+    truncate_list_by_token_size,
+    update_chunk_cache_list,
+    use_llm_func_with_cache,
+)
 
 # use the .env that is inside the current folder
 # allows to use different .env file for each lightrag instance
@@ -978,7 +979,7 @@ async def _merge_nodes_then_upsert(
 
     if num_fragment > 1:
         if num_fragment >= force_llm_summary_on_merge:
-            status_message = f"LLM merge N: {entity_name} | {num_new_fragment}+{num_fragment-num_new_fragment}"
+            status_message = f"LLM merge N: {entity_name} | {num_new_fragment}+{num_fragment - num_new_fragment}"
             logger.info(status_message)
             if pipeline_status is not None and pipeline_status_lock is not None:
                 async with pipeline_status_lock:
@@ -991,7 +992,7 @@ async def _merge_nodes_then_upsert(
                 llm_response_cache,
             )
         else:
-            status_message = f"Merge N: {entity_name} | {num_new_fragment}+{num_fragment-num_new_fragment}"
+            status_message = f"Merge N: {entity_name} | {num_new_fragment}+{num_fragment - num_new_fragment}"
             logger.info(status_message)
             if pipeline_status is not None and pipeline_status_lock is not None:
                 async with pipeline_status_lock:
@@ -1136,7 +1137,7 @@ async def _merge_edges_then_upsert(
 
     if num_fragment > 1:
         if num_fragment >= force_llm_summary_on_merge:
-            status_message = f"LLM merge E: {src_id} - {tgt_id} | {num_new_fragment}+{num_fragment-num_new_fragment}"
+            status_message = f"LLM merge E: {src_id} - {tgt_id} | {num_new_fragment}+{num_fragment - num_new_fragment}"
             logger.info(status_message)
             if pipeline_status is not None and pipeline_status_lock is not None:
                 async with pipeline_status_lock:
@@ -1149,7 +1150,7 @@ async def _merge_edges_then_upsert(
                 llm_response_cache,
             )
         else:
-            status_message = f"Merge E: {src_id} - {tgt_id} | {num_new_fragment}+{num_fragment-num_new_fragment}"
+            status_message = f"Merge E: {src_id} - {tgt_id} | {num_new_fragment}+{num_fragment - num_new_fragment}"
             logger.info(status_message)
             if pipeline_status is not None and pipeline_status_lock is not None:
                 async with pipeline_status_lock:
@@ -1590,6 +1591,11 @@ async def extract_entities(
         hint_prompt = entity_extract_prompt.format(
             **{**context_base, "input_text": content}
         )
+
+        # print("==========")
+        # print(hint_prompt)
+        # print("==========")
+        # exit()
 
         final_result = await use_llm_func_with_cache(
             hint_prompt,
@@ -2528,6 +2534,7 @@ async def _build_query_context(
             source_type=query_param.mode,
             chunk_token_limit=available_chunk_tokens,  # Pass dynamic limit
         )
+        # truncated_chunks = merged_chunks
 
         # Rebuild text_units_context with truncated chunks
         for i, chunk in enumerate(truncated_chunks):
@@ -2592,6 +2599,7 @@ async def _build_query_context(
 ```
 
 """
+    # return result
     return result
 
 

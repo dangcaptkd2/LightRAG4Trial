@@ -1,6 +1,6 @@
 from __future__ import annotations
-from typing import Any
 
+from typing import Any
 
 PROMPTS: dict[str, Any] = {}
 
@@ -9,17 +9,24 @@ PROMPTS["DEFAULT_TUPLE_DELIMITER"] = "<|>"
 PROMPTS["DEFAULT_RECORD_DELIMITER"] = "##"
 PROMPTS["DEFAULT_COMPLETION_DELIMITER"] = "<|COMPLETE|>"
 
-PROMPTS["DEFAULT_ENTITY_TYPES"] = ["organization", "person", "geo", "event", "category"]
+# Updated entity types for clinical trials
+PROMPTS["DEFAULT_ENTITY_TYPES"] = [
+    "trial",
+    "condition",
+    "intervention",
+    "inclusion_eligibility_criteria",
+    "exclusion_eligibility_criteria",
+]
 
 PROMPTS["DEFAULT_USER_PROMPT"] = "n/a"
 
+
 PROMPTS["entity_extraction"] = """---Goal---
-Given a text document that is potentially relevant to this activity and a list of entity types, identify all entities of those types from the text and all relationships among the identified entities.
-Use {language} as output language.
+Given a clinical trial document (or a fragment of it) and a list of entity types, identify all entities of those types from the text and all relationships among the identified entities.
 
 ---Steps---
 1. Identify all entities. For each identified entity, extract the following information:
-- entity_name: Name of the entity, use same language as input text. If English, capitalized the name
+- entity_name: Name of the entity and capitalize the name
 - entity_type: One of the following types: [{entity_types}]
 - entity_description: Provide a comprehensive description of the entity's attributes and activities *based solely on the information present in the input text*. **Do not infer or hallucinate information not explicitly stated.** If the text provides insufficient information to create a comprehensive description, state "Description not available in text."
 Format each entity as ("entity"{tuple_delimiter}<entity_name>{tuple_delimiter}<entity_type>{tuple_delimiter}<entity_description>)
@@ -53,93 +60,234 @@ Text:
 {input_text}
 ######################
 Output:"""
+# PROMPTS["entity_extraction"] = """---Goal---
+# Given a clinical trial document (or a fragment of it), build a structured knowledge graph centered on the provided clinical trial ID.
+# The graph must include all relevant entities and relationships that are important for clinical trial matching and analysis.
+
+# ---Inputs---
+# - trial_id: {trial_id}   # ALWAYS use this exact value as the central node ID
+# - section_name (optional): {section_name}
+# - entity_types: [{entity_types}]
+# - tuple_delimiter: {tuple_delimiter}
+# - record_delimiter: {record_delimiter}
+# - completion_delimiter: {completion_delimiter}
+
+# ---Global Constraints---
+# - The clinical trial with ID = {trial_id} MUST be represented as the **central node** (entity_type = "trial").
+# - Every non-trial entity must be connected directly or indirectly to {trial_id}.
+# - Use ONLY facts stated or strongly implied by the text. Do **not** hallucinate.
+# - Keep names and spellings consistent across entities and relationships.
+# - For relationship_strength, use a numeric score in [0.0, 1.0] with two decimals (e.g., 0.85).
+
+# ---Section Guidance (if section_name provided)---
+# - Treat {section_name} as a context hint about which part of the trial the text comes from.
+# - If section_name describes eligibility (e.g., "INCLUSION CRITERIA", "EXCLUSION CRITERIA"), then:
+#   * Prefer entity_type "eligibility" where appropriate.
+#   * Use relationship_keywords like "eligible_if" or "excluded_if".
+#   * Reflect the section in relationship_description (e.g., “per INCLUSION CRITERIA: …”).
+# - If section_name refers to other parts (e.g., "INTERVENTION", "OUTCOMES", "LOCATIONS"), prefer relationship_keywords accordingly (e.g., "treats", "measures", "conducted_at", "located_in", "sponsored_by", "collaborates_with").
+# - If section_name is empty, proceed normally.
+
+# ---Steps---
+
+# 1) Define the central trial entity:
+#    - Create exactly one entity for the trial with:
+#      * entity_name = {trial_id}
+#      * entity_type = "trial"
+#      * entity_description = concise but comprehensive summary of trial attributes present in the text (title, phase, status, design, arms, etc. when available).
+
+#    Format:
+#    ("entity"{tuple_delimiter}<entity_name>{tuple_delimiter}<entity_type>{tuple_delimiter}<entity_description>)
+
+# 2) Identify all other entities. For each entity, extract:
+#    - entity_name: Name in the same language as input. Capitalize proper names in English.
+#    - entity_type: One of [{entity_types}]
+#      * trial: The clinical trial itself (already created for {trial_id})
+#      * condition: Disease/indication being studied
+#      * intervention: Drug/device/biologic/procedure being tested
+#      * sponsor: Lead sponsor, collaborator, or funding organization
+#      * site: Facility/site where the trial is conducted
+#      * geo: Geographic location (city, state, country, region)
+#      * eligibility: Patient selection criteria (inclusion/exclusion, age, diagnosis requirements)
+#    - entity_description: Concise but comprehensive description of the entity’s attributes and role in the trial.
+#      If section_name is provided, reference it when helpful (e.g., “Eligibility factor from INCLUSION CRITERIA: …”).
+
+#    Format for each:
+#    ("entity"{tuple_delimiter}<entity_name>{tuple_delimiter}<entity_type>{tuple_delimiter}<entity_description>)
+
+# 3) Extract relationships:
+#    - Every non-trial entity should have at least one relationship to {trial_id}.
+#    - Also capture meaningful relationships between non-trial entities (e.g., sponsor ↔ site, condition ↔ intervention).
+#    - For each relationship, extract:
+#      * source_entity
+#      * target_entity
+#      * relationship_description: short explanation grounded in the text; if section_name is provided, reference it when relevant (e.g., “per EXCLUSION CRITERIA: …”).
+#      * relationship_keywords: pick 1–3 from this controlled list when applicable:
+#        ["treats","investigates","eligible_if","excluded_if","contraindicated_with","requires","measures","outcome_of",
+#         "located_in","conducted_at","sponsored_by","collaborates_with","funded_by","has_phase","has_status","targets"]
+#        If none fit, use a precise custom verb-noun phrase (snake_case).
+#      * relationship_strength: float in [0.00, 1.00] with two decimals indicating confidence/strength.
+
+#    Format for each:
+#    ("relationship"{tuple_delimiter}<source_entity>{tuple_delimiter}<target_entity>{tuple_delimiter}<relationship_description>{tuple_delimiter}<relationship_keywords>{tuple_delimiter}<relationship_strength>)
+
+#    Notes:
+#    - Use exact entity_name strings used in the entity tuples.
+#    - Prefer direct links to {trial_id} for primary relations (e.g., intervention→trial, condition→trial, site→trial, sponsor→trial).
+#    - When eligibility constraints apply to a condition/intervention, link eligibility→trial and also eligibility→condition/intervention where appropriate.
+
+# 4) Identify high-level trial concepts (topics/themes) that summarize the trial.
+#    - Provide 3–10 concise keywords/phrases (comma-separated).
+#    - Include section-aware terms when section_name is present (e.g., “inclusion criteria”, “exclusion criteria”, “dose escalation”, “primary endpoint”).
+
+#    Format:
+#    ("content_keywords"{tuple_delimiter}<high_level_keywords>)
+
+# 5) Output formatting rules:
+#    - Return ALL entities and relationships (and the content_keywords line) as a single flat list, joining items with {record_delimiter}.
+#    - Do NOT include any extra text outside of the tuples.
+#    - ALWAYS end with {completion_delimiter} on its own.
+
+# ######################
+# ---Examples---
+# ######################
+# {examples}
+
+# #############################
+# ---Real Data---
+# ######################
+# Entity_types: [{entity_types}]
+# trial_id: {trial_id}
+# section_name: {section_name}
+# Text:
+# {input_text}
+# ######################
+# Output:
+# """
+# PROMPTS["entity_extraction"] = """---Goal---
+# From a full clinical trial document and a list of entity types, identify all entities of those types from the text and all relationships among the identified entities.
+
+# ---Global Constraints---
+# - Emit a central "trial" entity with entity_name = {trial_id}.
+# - Keep names/spellings consistent across entities and relations.
+# - Connectivity requirement: Every non-trial entity you output MUST have at least one evidence-backed path to {trial_id} (direct or via other entities) using relations present in this document.
+#   - If you cannot justify any path from an entity to {trial_id} based on this document, omit that entity.
+#   - Canonicalization & reuse: Deduplicate entities within this output. Use the exact same entity_name strings in all relationships.
+# - relationship_strength in [0.00, 1.00], two decimals.
+
+# ---Eligibility Guidance---
+# - Model atomic eligibility criteria as separate entities (entity_type="inclusion_eligibility_criteria" or "exclusion_eligibility_criteria")
+
+# ---Steps---
+
+# 1. Central trial entity (always emit):
+# ("entity"{tuple_delimiter}{trial_id}{tuple_delimiter}"trial"{tuple_delimiter}<concise trial summary">)
+
+# 2. Other entities (repeat):
+# ("entity"{tuple_delimiter}<entity_name>{tuple_delimiter}<entity_type>{tuple_delimiter}<concise description based on document>)
+
+# 3. Relationships (repeat):
+# - Capture any meaningful links: trial↔non-trial and non-trial↔non-trial.
+# - Fields:
+#   * source_entity: name of the source entity, as identified in step 1
+#   * target_entity: name of the target entity, as identified in step 1
+#   * relationship_description: explanation as to why you think the source entity and the target entity are related to each other
+#   * relationship_keywords: one or more high-level key words that summarize the overarching nature of the relationship, focusing on concepts or themes rather than specific details
+#   * relationship_strength: a numeric score indicating strength of the relationship between the source entity and target entity, in [0.00, 1.00]
+
+# Format:
+# ("relationship"{tuple_delimiter}<source_entity>{tuple_delimiter}<target_entity>{tuple_delimiter}<relationship_description>{tuple_delimiter}<relationship_keywords>{tuple_delimiter}<relationship_strength>)
+
+# 4. Content keywords (3–10 concise terms capturing trial themes:
+# ("content_keywords"{tuple_delimiter}<keywords_comma_separated>)
+
+# 5. Return output in a singlelist of all the entities and relationships identified in steps 1, 2 and 3. Use **{record_delimiter}** as the list delimiter.
+
+# 6. When finished, output {completion_delimiter}
+
+# ######################
+# ---Examples---
+# ######################
+# {examples}
+
+# #############################
+# ---Real Data---
+# ######################
+# Entity_types: [{entity_types}]
+# trial_id: {trial_id}
+# Text:
+# {input_text}
+# ######################
+# Output:
+# """
+
 
 PROMPTS["entity_extraction_examples"] = [
-    """Example 1:
+    """Example:
 
-Entity_types: [person, technology, mission, organization, location]
+Entity_types: [trial, condition, intervention, inclusion_eligibility_criteria, exclusion_eligibility_criteria]
 Text:
 ```
-while Alex clenched his jaw, the buzz of frustration dull against the backdrop of Taylor's authoritarian certainty. It was this competitive undercurrent that kept him alert, the sense that his and Jordan's shared commitment to discovery was an unspoken rebellion against Cruz's narrowing vision of control and order.
+NCT02345798: A Phase 3 Study of Pembrolizumab (MK-3475) in Participants With Advanced Non-Small Cell Lung Cancer
 
-Then Taylor did something unexpected. They paused beside Jordan and, for a moment, observed the device with something akin to reverence. "If this tech can be understood..." Taylor said, their voice quieter, "It could change the game for us. For all of us."
+Brief Title: A Phase 3 Study of Pembrolizumab (MK-3475) in Participants With Advanced Non-Small Cell Lung Cancer
+Official Title: A Phase 3, Randomized, Double-Blind Study of Pembrolizumab (MK-3475) Versus Placebo in Participants With Previously Treated Advanced Non-Small Cell Lung Cancer
 
-The underlying dismissal earlier seemed to falter, replaced by a glimpse of reluctant respect for the gravity of what lay in their hands. Jordan looked up, and for a fleeting heartbeat, their eyes locked with Taylor's, a wordless clash of wills softening into an uneasy truce.
+Status: Completed
+Phase: Phase 3
+Study Type: Interventional
+Enrollment: 1034 participants
 
-It was a small transformation, barely perceptible, but one that Alex noted with an inward nod. They had all been brought here by different paths
+Conditions: Non-Small Cell Lung Cancer, Advanced Cancer
+Interventions: Pembrolizumab 200 mg IV every 3 weeks, Placebo IV every 3 weeks
+Keywords: Immunotherapy, PD-1 inhibitor, Checkpoint inhibitor
+
+Brief Summary: This study evaluates the efficacy and safety of pembrolizumab compared to placebo in participants with previously treated advanced non-small cell lung cancer. Participants will be randomized to receive either pembrolizumab or placebo.
+
+Eligibility Criteria: 
+- Age 18 years or older
+- Histologically confirmed advanced NSCLC
+- Previously treated with platinum-based chemotherapy
+- ECOG performance status 0 or 1
+
+Primary Outcome Measures:
+- Overall Survival (OS)
+- Progression-Free Survival (PFS)
+
+Sponsor: Merck Sharp & Dohme LLC
+Lead Sponsor: Merck Sharp & Dohme LLC
+Study Sites: Multiple sites across United States and Europe
 ```
 
 Output:
-("entity"{tuple_delimiter}"Alex"{tuple_delimiter}"person"{tuple_delimiter}"Alex is a character who experiences frustration and is observant of the dynamics among other characters."){record_delimiter}
-("entity"{tuple_delimiter}"Taylor"{tuple_delimiter}"person"{tuple_delimiter}"Taylor is portrayed with authoritarian certainty and shows a moment of reverence towards a device, indicating a change in perspective."){record_delimiter}
-("entity"{tuple_delimiter}"Jordan"{tuple_delimiter}"person"{tuple_delimiter}"Jordan shares a commitment to discovery and has a significant interaction with Taylor regarding a device."){record_delimiter}
-("entity"{tuple_delimiter}"Cruz"{tuple_delimiter}"person"{tuple_delimiter}"Cruz is associated with a vision of control and order, influencing the dynamics among other characters."){record_delimiter}
-("entity"{tuple_delimiter}"The Device"{tuple_delimiter}"technology"{tuple_delimiter}"The Device is central to the story, with potential game-changing implications, and is revered by Taylor."){record_delimiter}
-("relationship"{tuple_delimiter}"Alex"{tuple_delimiter}"Taylor"{tuple_delimiter}"Alex is affected by Taylor's authoritarian certainty and observes changes in Taylor's attitude towards the device."{tuple_delimiter}"power dynamics, perspective shift"{tuple_delimiter}7){record_delimiter}
-("relationship"{tuple_delimiter}"Alex"{tuple_delimiter}"Jordan"{tuple_delimiter}"Alex and Jordan share a commitment to discovery, which contrasts with Cruz's vision."{tuple_delimiter}"shared goals, rebellion"{tuple_delimiter}6){record_delimiter}
-("relationship"{tuple_delimiter}"Taylor"{tuple_delimiter}"Jordan"{tuple_delimiter}"Taylor and Jordan interact directly regarding the device, leading to a moment of mutual respect and an uneasy truce."{tuple_delimiter}"conflict resolution, mutual respect"{tuple_delimiter}8){record_delimiter}
-("relationship"{tuple_delimiter}"Jordan"{tuple_delimiter}"Cruz"{tuple_delimiter}"Jordan's commitment to discovery is in rebellion against Cruz's vision of control and order."{tuple_delimiter}"ideological conflict, rebellion"{tuple_delimiter}5){record_delimiter}
-("relationship"{tuple_delimiter}"Taylor"{tuple_delimiter}"The Device"{tuple_delimiter}"Taylor shows reverence towards the device, indicating its importance and potential impact."{tuple_delimiter}"reverence, technological significance"{tuple_delimiter}9){record_delimiter}
-("content_keywords"{tuple_delimiter}"power dynamics, ideological conflict, discovery, rebellion"){completion_delimiter}
-#############################""",
-    """Example 2:
+("entity"{tuple_delimiter}"NCT02345798"{tuple_delimiter}"trial"{tuple_delimiter}"Phase 3 randomized double-blind study evaluating pembrolizumab versus placebo in 1034 participants with previously treated advanced NSCLC."){record_delimiter}
+("entity"{tuple_delimiter}"Non-Small Cell Lung Cancer"{tuple_delimiter}"condition"{tuple_delimiter}"Advanced form of lung cancer that is the primary disease/indication studied."){record_delimiter}
+("entity"{tuple_delimiter}"Advanced Cancer"{tuple_delimiter}"condition"{tuple_delimiter}"General category of advanced malignancy including NSCLC."){record_delimiter}
+("entity"{tuple_delimiter}"Pembrolizumab"{tuple_delimiter}"intervention"{tuple_delimiter}"Anti-PD-1 immunotherapy administered 200mg IV every 3 weeks."){record_delimiter}
+("entity"{tuple_delimiter}"Placebo"{tuple_delimiter}"intervention"{tuple_delimiter}"Control IV infusion every 3 weeks."){record_delimiter}
+("entity"{tuple_delimiter}"Age ≥ 18 years"{tuple_delimiter}"inclusion_eligibility_criteria"{tuple_delimiter}"INCLUSION: Adults aged 18 years or older."){record_delimiter}
+("entity"{tuple_delimiter}"Histologically confirmed advanced NSCLC"{tuple_delimiter}"inclusion_eligibility_criteria"{tuple_delimiter}"INCLUSION: Diagnosis required for study entry."){record_delimiter}
+("entity"{tuple_delimiter}"Prior platinum-based chemotherapy"{tuple_delimiter}"inclusion_eligibility_criteria"{tuple_delimiter}"INCLUSION: Must have been previously treated with platinum-based chemotherapy."){record_delimiter}
+("entity"{tuple_delimiter}"ECOG performance status 0–1"{tuple_delimiter}"inclusion_eligibility_criteria"{tuple_delimiter}"INCLUSION: Functional status requirement."){record_delimiter}
 
-Entity_types: [company, index, commodity, market_trend, economic_policy, biological]
-Text:
-```
-Stock markets faced a sharp downturn today as tech giants saw significant declines, with the Global Tech Index dropping by 3.4% in midday trading. Analysts attribute the selloff to investor concerns over rising interest rates and regulatory uncertainty.
-
-Among the hardest hit, Nexon Technologies saw its stock plummet by 7.8% after reporting lower-than-expected quarterly earnings. In contrast, Omega Energy posted a modest 2.1% gain, driven by rising oil prices.
-
-Meanwhile, commodity markets reflected a mixed sentiment. Gold futures rose by 1.5%, reaching $2,080 per ounce, as investors sought safe-haven assets. Crude oil prices continued their rally, climbing to $87.60 per barrel, supported by supply constraints and strong demand.
-
-Financial experts are closely watching the Federal Reserve's next move, as speculation grows over potential rate hikes. The upcoming policy announcement is expected to influence investor confidence and overall market stability.
-```
-
-Output:
-("entity"{tuple_delimiter}"Global Tech Index"{tuple_delimiter}"index"{tuple_delimiter}"The Global Tech Index tracks the performance of major technology stocks and experienced a 3.4% decline today."){record_delimiter}
-("entity"{tuple_delimiter}"Nexon Technologies"{tuple_delimiter}"company"{tuple_delimiter}"Nexon Technologies is a tech company that saw its stock decline by 7.8% after disappointing earnings."){record_delimiter}
-("entity"{tuple_delimiter}"Omega Energy"{tuple_delimiter}"company"{tuple_delimiter}"Omega Energy is an energy company that gained 2.1% in stock value due to rising oil prices."){record_delimiter}
-("entity"{tuple_delimiter}"Gold Futures"{tuple_delimiter}"commodity"{tuple_delimiter}"Gold futures rose by 1.5%, indicating increased investor interest in safe-haven assets."){record_delimiter}
-("entity"{tuple_delimiter}"Crude Oil"{tuple_delimiter}"commodity"{tuple_delimiter}"Crude oil prices rose to $87.60 per barrel due to supply constraints and strong demand."){record_delimiter}
-("entity"{tuple_delimiter}"Market Selloff"{tuple_delimiter}"market_trend"{tuple_delimiter}"Market selloff refers to the significant decline in stock values due to investor concerns over interest rates and regulations."){record_delimiter}
-("entity"{tuple_delimiter}"Federal Reserve Policy Announcement"{tuple_delimiter}"economic_policy"{tuple_delimiter}"The Federal Reserve's upcoming policy announcement is expected to impact investor confidence and market stability."){record_delimiter}
-("relationship"{tuple_delimiter}"Global Tech Index"{tuple_delimiter}"Market Selloff"{tuple_delimiter}"The decline in the Global Tech Index is part of the broader market selloff driven by investor concerns."{tuple_delimiter}"market performance, investor sentiment"{tuple_delimiter}9){record_delimiter}
-("relationship"{tuple_delimiter}"Nexon Technologies"{tuple_delimiter}"Global Tech Index"{tuple_delimiter}"Nexon Technologies' stock decline contributed to the overall drop in the Global Tech Index."{tuple_delimiter}"company impact, index movement"{tuple_delimiter}8){record_delimiter}
-("relationship"{tuple_delimiter}"Gold Futures"{tuple_delimiter}"Market Selloff"{tuple_delimiter}"Gold prices rose as investors sought safe-haven assets during the market selloff."{tuple_delimiter}"market reaction, safe-haven investment"{tuple_delimiter}10){record_delimiter}
-("relationship"{tuple_delimiter}"Federal Reserve Policy Announcement"{tuple_delimiter}"Market Selloff"{tuple_delimiter}"Speculation over Federal Reserve policy changes contributed to market volatility and investor selloff."{tuple_delimiter}"interest rate impact, financial regulation"{tuple_delimiter}7){record_delimiter}
-("content_keywords"{tuple_delimiter}"market downturn, investor sentiment, commodities, Federal Reserve, stock performance"){completion_delimiter}
-#############################""",
-    """Example 3:
-
-Entity_types: [economic_policy, athlete, event, location, record, organization, equipment]
-Text:
-```
-At the World Athletics Championship in Tokyo, Noah Carter broke the 100m sprint record using cutting-edge carbon-fiber spikes.
-```
-
-Output:
-("entity"{tuple_delimiter}"World Athletics Championship"{tuple_delimiter}"event"{tuple_delimiter}"The World Athletics Championship is a global sports competition featuring top athletes in track and field."){record_delimiter}
-("entity"{tuple_delimiter}"Tokyo"{tuple_delimiter}"location"{tuple_delimiter}"Tokyo is the host city of the World Athletics Championship."){record_delimiter}
-("entity"{tuple_delimiter}"Noah Carter"{tuple_delimiter}"athlete"{tuple_delimiter}"Noah Carter is a sprinter who set a new record in the 100m sprint at the World Athletics Championship."){record_delimiter}
-("entity"{tuple_delimiter}"100m Sprint Record"{tuple_delimiter}"record"{tuple_delimiter}"The 100m sprint record is a benchmark in athletics, recently broken by Noah Carter."){record_delimiter}
-("entity"{tuple_delimiter}"Carbon-Fiber Spikes"{tuple_delimiter}"equipment"{tuple_delimiter}"Carbon-fiber spikes are advanced sprinting shoes that provide enhanced speed and traction."){record_delimiter}
-("entity"{tuple_delimiter}"World Athletics Federation"{tuple_delimiter}"organization"{tuple_delimiter}"The World Athletics Federation is the governing body overseeing the World Athletics Championship and record validations."){record_delimiter}
-("relationship"{tuple_delimiter}"World Athletics Championship"{tuple_delimiter}"Tokyo"{tuple_delimiter}"The World Athletics Championship is being hosted in Tokyo."{tuple_delimiter}"event location, international competition"{tuple_delimiter}8){record_delimiter}
-("relationship"{tuple_delimiter}"Noah Carter"{tuple_delimiter}"100m Sprint Record"{tuple_delimiter}"Noah Carter set a new 100m sprint record at the championship."{tuple_delimiter}"athlete achievement, record-breaking"{tuple_delimiter}10){record_delimiter}
-("relationship"{tuple_delimiter}"Noah Carter"{tuple_delimiter}"Carbon-Fiber Spikes"{tuple_delimiter}"Noah Carter used carbon-fiber spikes to enhance performance during the race."{tuple_delimiter}"athletic equipment, performance boost"{tuple_delimiter}7){record_delimiter}
-("relationship"{tuple_delimiter}"World Athletics Federation"{tuple_delimiter}"100m Sprint Record"{tuple_delimiter}"The World Athletics Federation is responsible for validating and recognizing new sprint records."{tuple_delimiter}"sports regulation, record certification"{tuple_delimiter}9){record_delimiter}
-("content_keywords"{tuple_delimiter}"athletics, sprinting, record-breaking, sports technology, competition"){completion_delimiter}
-#############################""",
+("relationship"{tuple_delimiter}"NCT02345798"{tuple_delimiter}"Non-Small Cell Lung Cancer"{tuple_delimiter}"Trial investigates pembrolizumab in advanced NSCLC."{tuple_delimiter}"disease_focus"{tuple_delimiter}0.95){record_delimiter}
+("relationship"{tuple_delimiter}"Pembrolizumab"{tuple_delimiter}"Non-Small Cell Lung Cancer"{tuple_delimiter}"Pembrolizumab tested as treatment for NSCLC."{tuple_delimiter}"treats"{tuple_delimiter}0.94){record_delimiter}
+("relationship"{tuple_delimiter}"Pembrolizumab"{tuple_delimiter}"NCT02345798"{tuple_delimiter}"Experimental arm of the trial."{tuple_delimiter}"investigates"{tuple_delimiter}0.92){record_delimiter}
+("relationship"{tuple_delimiter}"Placebo"{tuple_delimiter}"NCT02345798"{tuple_delimiter}"Comparator control arm."{tuple_delimiter}"control_arm"{tuple_delimiter}0.90){record_delimiter}
+("relationship"{tuple_delimiter}"Age ≥ 18 years"{tuple_delimiter}"NCT02345798"{tuple_delimiter}"INCLUSION: Minimum age requirement."{tuple_delimiter}"eligible_inclusion"{tuple_delimiter}0.90){record_delimiter}
+("relationship"{tuple_delimiter}"Histologically confirmed advanced NSCLC"{tuple_delimiter}"Non-Small Cell Lung Cancer"{tuple_delimiter}"INCLUSION: Diagnosis required."{tuple_delimiter}"eligible_inclusion"{tuple_delimiter}0.92){record_delimiter}
+("relationship"{tuple_delimiter}"Prior platinum-based chemotherapy"{tuple_delimiter}"Pembrolizumab"{tuple_delimiter}"INCLUSION: Patients must have prior platinum therapy before receiving pembrolizumab."{tuple_delimiter}"eligible_inclusion, requires"{tuple_delimiter}0.88){record_delimiter}
+("relationship"{tuple_delimiter}"ECOG performance status 0–1"{tuple_delimiter}"NCT02345798"{tuple_delimiter}"INCLUSION: Functional status eligibility."{tuple_delimiter}"eligible_inclusion"{tuple_delimiter}0.90){record_delimiter}
+#############################"""
 ]
 
 PROMPTS[
     "summarize_entity_descriptions"
-] = """You are a helpful assistant responsible for generating a comprehensive summary of the data provided below.
+] = """You are a helpful assistant responsible for generating a comprehensive summary of clinical trial data provided below.
 Given one or two entities, and a list of descriptions, all related to the same entity or group of entities.
 Please concatenate all of these into a single, comprehensive description. Make sure to include information collected from all the descriptions.
 If the provided descriptions are contradictory, please resolve the contradictions and provide a single, coherent summary.
-Make sure it is written in third person, and include the entity names so we the have full context.
+Make sure it is written in third person, and include the entity names so we have full context.
 Use {language} as output language.
 
 #######
@@ -196,45 +344,79 @@ PROMPTS["fail_response"] = (
     "Sorry, I'm not able to provide an answer to that question.[no-context]"
 )
 
+# PROMPTS["rag_response"] = """---Role---
+
+# You are a helpful assistant responding to user query about Knowledge Graph and Document Chunks provided in JSON format below.
+
+
+# ---Goal---
+
+# Generate a concise response based on Knowledge Base and follow Response Rules, considering both current query and the conversation history if provided. Summarize all information in the provided Knowledge Base, and incorporating general knowledge relevant to the Knowledge Base. Do not include information not provided by Knowledge Base.
+
+# ---Conversation History---
+# {history}
+
+# ---Knowledge Graph and Document Chunks---
+# {context_data}
+
+# ---RESPONSE GUIDELINES---
+# **1. Content & Adherence:**
+# - Strictly adhere to the provided context from the Knowledge Base. Do not invent, assume, or include any information not present in the source data.
+# - If the answer cannot be found in the provided context, state that you do not have enough information to answer.
+# - Ensure the response maintains continuity with the conversation history.
+
+# **2. Formatting & Language:**
+# - Format the response using markdown with appropriate section headings.
+# - The response language must in the same language as the user's question.
+# - Target format and length: {response_type}
+
+# **3. Citations / References:**
+# - At the end of the response, under a "References" section, each citation must clearly indicate its origin (KG or DC).
+# - The maximum number of citations is 5, including both KG and DC.
+# - Use the following formats for citations:
+#   - For a Knowledge Graph Entity: `[KG] <entity_name>`
+#   - For a Knowledge Graph Relationship: `[KG] <entity1_name> - <entity2_name>`
+#   - For a Document Chunk: `[DC] <file_path_or_document_name>`
+
+# ---USER CONTEXT---
+# - Additional user prompt: {user_prompt}
+
+
+# Response:"""
 PROMPTS["rag_response"] = """---Role---
-
-You are a helpful assistant responding to user query about Knowledge Graph and Document Chunks provided in JSON format below.
-
+You are a matching engine that, given a patient profile and a Knowledge Base (clinical-trial Knowledge Graph + document chunks), returns the best-matching clinical trial IDs.
 
 ---Goal---
+From the provided Knowledge Base, identify clinical trials for which the patient likely qualifies and output only the list of clinical trial IDs, ranked by match quality. Do not use any information outside the provided Knowledge Base.
 
-Generate a concise response based on Knowledge Base and follow Response Rules, considering both current query and the conversation history if provided. Summarize all information in the provided Knowledge Base, and incorporating general knowledge relevant to the Knowledge Base. Do not include information not provided by Knowledge Base.
+---Inputs---
+- Patient Profile:
+{user_prompt}
 
----Conversation History---
-{history}
-
----Knowledge Graph and Document Chunks---
+- Knowledge Graph and Document Chunks:
 {context_data}
 
----RESPONSE GUIDELINES---
-**1. Content & Adherence:**
-- Strictly adhere to the provided context from the Knowledge Base. Do not invent, assume, or include any information not present in the source data.
-- If the answer cannot be found in the provided context, state that you do not have enough information to answer.
-- Ensure the response maintains continuity with the conversation history.
+---RESPONSE RULES---
+1) Content & Adherence
+- Use only data present in the Knowledge Base (KG/DC). Do not invent or assume missing details.
+- If eligibility/status/location information is absent for a trial, do not assume it; match using what is available.
+- Prefer trials whose inclusion criteria are satisfied and whose exclusion criteria are not violated by the patient profile.
+- When available, favor trials that are Recruiting/Active and within plausible geographic reach; if status/location is not provided, do not filter on it.
 
-**2. Formatting & Language:**
-- Format the response using markdown with appropriate section headings.
-- The response language must in the same language as the user's question.
-- Target format and length: {response_type}
+2) Matching Logic (internal guidance; do not output explanations)
+- Extract key patient attributes: condition/diagnosis, stage/severity, biomarkers/genetics, prior therapies, age/sex, comorbidities, ECOG, lab values, geography, and other relevant fields present.
+- For each trial, compare inclusion and exclusion criteria against the patient attributes.
+- Compute a match quality signal (e.g., count of satisfied inclusions, absence of exclusions, closeness on age/ECOG, etc.) using only provided data.
+- Rank trials by match quality; break ties by stricter inclusion matches, then more recent/active status when available, then lexicographically by trial ID.
 
-**3. Citations / References:**
-- At the end of the response, under a "References" section, each citation must clearly indicate its origin (KG or DC).
-- The maximum number of citations is 5, including both KG and DC.
-- Use the following formats for citations:
-  - For a Knowledge Graph Entity: `[KG] <entity_name>`
-  - For a Knowledge Graph Relationship: `[KG] <entity1_name> - <entity2_name>`
-  - For a Document Chunk: `[DC] <file_path_or_document_name>`
-
----USER CONTEXT---
-- Additional user prompt: {user_prompt}
-
+3) Output Format & Language
+- Output MUST be only a JSON array of **unique clinical trial IDs** (strings), e.g. ["NCT01234567","NCT08976543"].
+- Return **all** trials from the Knowledge Base that you judge suitable based on the rules above (any number is allowed, but should be larger than 10).
+- If no suitable trials are found from the provided Knowledge Base, output [].
+- No additional text, no explanations, no citations, no code fences.
 
 Response:"""
+
 
 PROMPTS["keywords_extraction"] = """---Role---
 You are an expert keyword extractor, specializing in analyzing user queries for a Retrieval-Augmented Generation (RAG) system. Your purpose is to identify both high-level and low-level keywords in the user's query that will be used for effective document retrieval.
