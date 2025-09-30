@@ -72,13 +72,13 @@ async def eval():
     for topic_id in data["topic_id"].unique():
         gt = data.loc[data["topic_id"] == topic_id, "NCT_id"].unique()
         query_param = QueryParam(
-            mode="mix",
+            mode="hybrid",
             only_need_context=False,
             only_need_prompt=False,
             response_type="Single Paragraph",
             stream=False,
-            top_k=100,
-            chunk_top_k=5,
+            top_k=20,
+            chunk_top_k=20,
             max_entity_tokens=10000,
             max_relation_tokens=10000,
             enable_rerank=False,
@@ -87,12 +87,17 @@ async def eval():
             data["topic_id"] == topic_id, "statement_medical"
         ].iloc[0]
         a = await query(rag, str(patient_profile), query_param)
-        a = json.loads(a)
+        try:
+            a = json.loads(a)
+        except Exception:
+            print(">> a: ", a)
+            a = []
         pred = a
         # pred = list(set([i["file_path"] for i in a]))
         print(f">> Returned chunks: {len(pred)} - Number of GT: {len(gt)}")
         list_pred.append(pred)
         list_gt.append(gt)
+
     precision, recall, f1 = score_micro(list_pred, list_gt)
     print(f"Micro Precision: {precision}, Micro Recall: {recall}, Micro F1: {f1}")
     precision, recall, f1 = score_macro(list_pred, list_gt)

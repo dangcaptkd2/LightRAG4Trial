@@ -26,6 +26,7 @@ dependencies = [
     "dotenv",
     "future",
     "json_repair",
+    "load-dotenv>=0.1.0",
     "nano-vectordb",
     "networkx",
     "numpy",

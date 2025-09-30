@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections import Counter, defaultdict
+from functools import partial
 from typing import Any, AsyncIterator, Literal, overload
 
 import json_repair
+from dotenv import load_dotenv
 
 from .base import (
     BaseGraphStorage,
@@ -14,6 +17,7 @@ from .base import (
     QueryContextResult,
     QueryParam,
     QueryResult,
+    TextChunkSchema,
 )
 from .constants import (
     DEFAULT_ENTITY_TYPES,
@@ -23,6 +27,7 @@ from .constants import (
     DEFAULT_MAX_TOTAL_TOKENS,
     DEFAULT_RELATED_CHUNK_NUMBER,
     DEFAULT_SUMMARY_LANGUAGE,
+    GRAPH_FIELD_SEP,
 )
 from .kg.shared_storage import get_storage_keyed_lock
 from .prompt import PROMPTS
@@ -2364,8 +2369,8 @@ async def kg_query(
         query_param.max_entity_tokens,
         query_param.max_relation_tokens,
         query_param.max_total_tokens,
-        query_param.hl_keywords or [],
-        query_param.ll_keywords or [],
+        hl_keywords_str,
+        ll_keywords_str,
         query_param.user_prompt or "",
         query_param.enable_rerank,
     )
@@ -2398,8 +2403,8 @@ async def kg_query(
                 "max_entity_tokens": query_param.max_entity_tokens,
                 "max_relation_tokens": query_param.max_relation_tokens,
                 "max_total_tokens": query_param.max_total_tokens,
-                "hl_keywords": query_param.hl_keywords or [],
-                "ll_keywords": query_param.ll_keywords or [],
+                "hl_keywords": hl_keywords_str,
+                "ll_keywords": ll_keywords_str,
                 "user_prompt": query_param.user_prompt or "",
                 "enable_rerank": query_param.enable_rerank,
             }
@@ -2487,8 +2492,6 @@ async def extract_keywords_only(
     args_hash = compute_args_hash(
         param.mode,
         text,
-        param.hl_keywords or [],
-        param.ll_keywords or [],
     )
     cached_result = await handle_cache(
         hashing_kv, args_hash, text, param.mode, cache_type="keywords"
@@ -2564,8 +2567,6 @@ async def extract_keywords_only(
                 "max_entity_tokens": param.max_entity_tokens,
                 "max_relation_tokens": param.max_relation_tokens,
                 "max_total_tokens": param.max_total_tokens,
-                "hl_keywords": param.hl_keywords or [],
-                "ll_keywords": param.ll_keywords or [],
                 "user_prompt": param.user_prompt or "",
                 "enable_rerank": param.enable_rerank,
             }
@@ -4161,8 +4162,6 @@ async def naive_query(
         query_param.max_entity_tokens,
         query_param.max_relation_tokens,
         query_param.max_total_tokens,
-        query_param.hl_keywords or [],
-        query_param.ll_keywords or [],
         query_param.user_prompt or "",
         query_param.enable_rerank,
     )
@@ -4193,8 +4192,6 @@ async def naive_query(
                 "max_entity_tokens": query_param.max_entity_tokens,
                 "max_relation_tokens": query_param.max_relation_tokens,
                 "max_total_tokens": query_param.max_total_tokens,
-                "hl_keywords": query_param.hl_keywords or [],
-                "ll_keywords": query_param.ll_keywords or [],
                 "user_prompt": query_param.user_prompt or "",
                 "enable_rerank": query_param.enable_rerank,
             }

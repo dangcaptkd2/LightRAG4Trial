@@ -1,7 +1,8 @@
-from ..utils import verbose_debug, VERBOSE_DEBUG
-import sys
-import os
 import logging
+import os
+import sys
+
+from ..utils import VERBOSE_DEBUG, verbose_debug
 
 if sys.version_info < (3, 9):
     from typing import AsyncIterator
@@ -13,31 +14,31 @@ import pipmaster as pm  # Pipmaster for dynamic library install
 if not pm.is_installed("openai"):
     pm.install("openai")
 
-from openai import (
-    AsyncOpenAI,
-    APIConnectionError,
-    RateLimitError,
-    APITimeoutError,
-)
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type,
-)
-from lightrag.utils import (
-    wrap_embedding_func_with_attrs,
-    safe_unicode_decode,
-    logger,
-)
-from lightrag.types import GPTKeywordExtractionFormat
-from lightrag.api import __api_version__
-
-import numpy as np
 import base64
 from typing import Any, Union
 
+import numpy as np
 from dotenv import load_dotenv
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    AsyncOpenAI,
+    RateLimitError,
+)
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
+from lightrag.api import __api_version__
+from lightrag.types import GPTKeywordExtractionFormat
+from lightrag.utils import (
+    logger,
+    safe_unicode_decode,
+    wrap_embedding_func_with_attrs,
+)
 
 # use the .env that is inside the current folder
 # allows to use different .env file for each lightrag instance
@@ -92,6 +93,15 @@ def create_openai_async_client(
         merged_configs["base_url"] = os.environ.get(
             "OPENAI_API_BASE", "https://api.openai.com/v1"
         )
+
+    # Disable SSL verification for RunPod and similar endpoints
+    import httpx
+
+    if (
+        "runpod.net" in merged_configs.get("base_url", "")
+        or os.environ.get("DISABLE_SSL_VERIFY", "false").lower() == "true"
+    ):
+        merged_configs["http_client"] = httpx.AsyncClient(verify=False)
 
     return AsyncOpenAI(**merged_configs)
 
